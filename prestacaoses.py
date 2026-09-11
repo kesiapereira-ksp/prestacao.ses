@@ -66,82 +66,107 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo
     pdf = PDFDemonstrativo(nome_projeto, logo_bytes=logo_bytes)
     pdf.add_page()
     
-    # 10 colunas ajustadas exatamente para largura da folha A4 Paisagem (277mm de área útil)
-    cols_w = [38, 28, 42, 28, 16, 18, 24, 20, 36, 27]
+    # 10 colunas ajustadas para a largura A4 Paisagem (277mm de área útil)
+    cols_w = (38, 28, 42, 28, 16, 18, 24, 20, 36, 27)
     headers = [
         "NATUREZA DA DESPESA", "GRUPO", "CREDOR", "CNPJ/CPF",
         "NOTA FISCAL", "DATA PAGTO", "VALOR Pagamento", "Data Ressarc.",
         "Ag. e Conta Corrente", "VALOR Ressarc."
     ]
+    alignments = ("LEFT", "LEFT", "LEFT", "CENTER", "CENTER", "CENTER", "RIGHT", "CENTER", "LEFT", "RIGHT")
     
-    # Cabeçalho da Tabela
-    pdf.set_font('Helvetica', 'B', 6)
-    pdf.set_fill_color(220, 220, 220)
-    for w, h_text in zip(cols_w, headers):
-        pdf.cell(w, 6, h_text, border=1, fill=True, align='C')
-    pdf.ln()
-    
-    pdf.set_font('Helvetica', size=5.5)
-    
+    linhas_validas = []
     tot_pagto = 0.0
     tot_ressarc = 0.0
-    qtd_linhas = 0
     
     for _, row in df_planilha.iterrows():
-        # Busca o valor de ressarcimento prioritariamente da coluna do projeto selecionado
         v_ressarc = 0.0
         if col_projeto and col_projeto in row:
             v_ressarc = limpar_valor(row.get(col_projeto, 0))
         if v_ressarc <= 0 and col_map.get('val_ressarc'):
             v_ressarc = limpar_valor(row.get(col_map['val_ressarc'], 0))
             
-        # REGRA PRINCIPAL: Ignora e retira do relatório se o ressarcimento for zerado (<= 0)
+        # Omite do relatório qualquer despesa sem valor de ressarcimento
         if v_ressarc <= 0:
             continue
             
         v_pagto = limpar_valor(row.get(col_map['val_pagto'], 0))
-        
         tot_pagto += v_pagto
         tot_ressarc += v_ressarc
-        qtd_linhas += 1
         
-        # Limita quantidade de caracteres por coluna para evitar sobreposição de textos
-        pdf.cell(cols_w[0], 5, fmt_texto(row.get(col_map['nat'], ''))[:24], border=1)
-        pdf.cell(cols_w[1], 5, fmt_texto(row.get(col_map['grupo'], ''))[:18], border=1)
-        pdf.cell(cols_w[2], 5, fmt_texto(row.get(col_map['credor'], ''))[:26], border=1)
-        pdf.cell(cols_w[3], 5, fmt_texto(row.get(col_map['cnpj'], ''))[:18], border=1, align='C')
-        pdf.cell(cols_w[4], 5, fmt_texto(row.get(col_map['nf'], ''))[:10], border=1, align='C')
-        pdf.cell(cols_w[5], 5, fmt_texto(row.get(col_map['data_p'], ''))[:10], border=1, align='C')
-        pdf.cell(cols_w[6], 5, fmt_moeda(v_pagto), border=1, align='R')
-        pdf.cell(cols_w[7], 5, fmt_texto(row.get(col_map['data_r'], ''))[:10], border=1, align='C')
-        pdf.cell(cols_w[8], 5, fmt_texto(row.get(col_map['ag_conta'], ''))[:22], border=1)
-        pdf.cell(cols_w[9], 5, fmt_moeda(v_ressarc), border=1, align='R', ln=True)
+        linhas_validas.append({
+            'nat': fmt_texto(row.get(col_map['nat'], '')),
+            'grupo': fmt_texto(row.get(col_map['grupo'], '')),
+            'credor': fmt_texto(row.get(col_map['credor'], '')),
+            'cnpj': fmt_texto(row.get(col_map['cnpj'], '')),
+            'nf': fmt_texto(row.get(col_map['nf'], '')),
+            'data_p': fmt_texto(row.get(col_map['data_p'], '')),
+            'val_p': fmt_moeda(v_pagto),
+            'data_r': fmt_texto(row.get(col_map['data_r'], '')),
+            'ag_conta': fmt_texto(row.get(col_map['ag_conta'], '')),
+            'val_r': fmt_moeda(v_ressarc)
+        })
         
-    if qtd_linhas > 0:
-        pdf.set_font('Helvetica', 'B', 6)
-        pdf.set_fill_color(230, 230, 230)
+    if not linhas_validas:
+        return None, 0
         
-        w_tot_label = sum(cols_w[:6])
-        pdf.cell(w_tot_label, 6, "TOTAL", border=1, fill=True, align='R')
-        pdf.cell(cols_w[6], 6, fmt_moeda(tot_pagto), border=1, fill=True, align='R')
-        pdf.cell(cols_w[7] + cols_w[8], 6, "", border=1, fill=True)
-        pdf.cell(cols_w[9], 6, fmt_moeda(tot_ressarc), border=1, fill=True, align='R', ln=True)
-        
-        pdf.ln(3)
-        pdf.set_font('Helvetica', 'B', 7.5)
-        pdf.set_fill_color(240, 240, 240)
-        
-        pdf.cell(180, 5, "RESUMO DE FECHAMENTO DO PROJETO", border=1, fill=True, ln=True, align='C')
-        
-        pdf.set_font('Helvetica', '', 7)
-        pdf.cell(120, 5, " Total do Valor das Despesas (Pagamentos dos itens com ressarcimento):", border=1)
-        pdf.cell(60, 5, f"R$ {fmt_moeda(tot_pagto)}", border=1, ln=True, align='R')
-        
-        pdf.cell(120, 5, " Total das Despesas Atribuídas ao Projeto (Ressarcimento):", border=1)
-        pdf.set_font('Helvetica', 'B', 7)
-        pdf.cell(60, 5, f"R$ {fmt_moeda(tot_ressarc)}", border=1, ln=True, align='R')
+    # Criação da tabela dinâmica com multilinhas (sem cortes de texto)
+    pdf.set_font('Helvetica', 'B', 6)
     
-    return bytes(pdf.output()), qtd_linhas
+    with pdf.table(
+        col_widths=cols_w,
+        text_align=alignments,
+        line_height=3.5,
+        padding=1
+    ) as table:
+        header_row = table.row()
+        for h in headers:
+            header_row.cell(h)
+            
+        pdf.set_font('Helvetica', size=5.5)
+        for item in linhas_validas:
+            r = table.row()
+            r.cell(item['nat'])
+            r.cell(item['grupo'])
+            r.cell(item['credor'])
+            r.cell(item['cnpj'])
+            r.cell(item['nf'])
+            r.cell(item['data_p'])
+            r.cell(item['val_p'])
+            r.cell(item['data_r'])
+            r.cell(item['ag_conta'])
+            r.cell(item['val_r'])
+            
+        # Linha Totalizadora
+        pdf.set_font('Helvetica', 'B', 6)
+        r_tot = table.row()
+        r_tot.cell("")
+        r_tot.cell("")
+        r_tot.cell("")
+        r_tot.cell("")
+        r_tot.cell("")
+        r_tot.cell("TOTAL")
+        r_tot.cell(fmt_moeda(tot_pagto))
+        r_tot.cell("")
+        r_tot.cell("")
+        r_tot.cell(fmt_moeda(tot_ressarc))
+        
+    # Quadro Resumo de Fechamento do Projeto
+    pdf.ln(3)
+    pdf.set_font('Helvetica', 'B', 7.5)
+    pdf.set_fill_color(240, 240, 240)
+    
+    pdf.cell(180, 5, "RESUMO DE FECHAMENTO DO PROJETO", border=1, fill=True, ln=True, align='C')
+    
+    pdf.set_font('Helvetica', '', 7)
+    pdf.cell(120, 5, " Total do Valor das Despesas (Pagamentos dos itens com ressarcimento):", border=1)
+    pdf.cell(60, 5, f"R$ {fmt_moeda(tot_pagto)}", border=1, ln=True, align='R')
+    
+    pdf.cell(120, 5, " Total das Despesas Atribuídas ao Projeto (Ressarcimento):", border=1)
+    pdf.set_font('Helvetica', 'B', 7)
+    pdf.cell(60, 5, f"R$ {fmt_moeda(tot_ressarc)}", border=1, ln=True, align='R')
+    
+    return bytes(pdf.output()), len(linhas_validas)
 
 # --- Interface Streamlit ---
 st.title("Gerador de Demonstrativo de Despesas por Projeto 📄📋")
@@ -167,7 +192,6 @@ if arquivo_excel:
         )
         
         st.write("⚙️ **2. Mapeie as colunas de dados fixos das despesas:**")
-        st.caption("Atenção: verifique se selecionou cada campo correspondente para não cruzar dados na tabela.")
         
         c1, c2, c3 = st.columns(3)
         
@@ -211,7 +235,7 @@ if arquivo_excel:
                         logo_bytes=logo_bytes
                     )
                     
-                    if qtd_itens > 0:
+                    if qtd_itens > 0 and pdf_bytes:
                         nome_limpo = re.sub(r'[\\/*?:"<>|]', '_', nome_contrato).strip()
                         zip_file.writestr(f"Demonstrativo_{nome_limpo}.pdf", pdf_bytes)
                         resumo_geracao[nome_contrato] = qtd_itens
