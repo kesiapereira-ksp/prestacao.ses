@@ -66,7 +66,8 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo
     pdf = PDFDemonstrativo(nome_projeto, logo_bytes=logo_bytes)
     pdf.add_page()
     
-    cols_w = [42, 30, 42, 26, 16, 18, 24, 20, 34, 25]
+    # 10 colunas ajustadas exatamente para largura da folha A4 Paisagem (277mm de área útil)
+    cols_w = [38, 28, 42, 28, 16, 18, 24, 20, 36, 27]
     headers = [
         "NATUREZA DA DESPESA", "GRUPO", "CREDOR", "CNPJ/CPF",
         "NOTA FISCAL", "DATA PAGTO", "VALOR Pagamento", "Data Ressarc.",
@@ -87,32 +88,32 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo
     qtd_linhas = 0
     
     for _, row in df_planilha.iterrows():
-        # Busca o valor de ressarcimento prioritariamente da coluna do projeto selecionado;
-        # se zerado, recorre à coluna mapeada de ressarcimento
+        # Busca o valor de ressarcimento prioritariamente da coluna do projeto selecionado
         v_ressarc = 0.0
         if col_projeto and col_projeto in row:
             v_ressarc = limpar_valor(row.get(col_projeto, 0))
         if v_ressarc <= 0 and col_map.get('val_ressarc'):
             v_ressarc = limpar_valor(row.get(col_map['val_ressarc'], 0))
             
-        v_pagto = limpar_valor(row.get(col_map['val_pagto'], 0))
-        
-        # Ignora linhas que não possuem pagamento nem ressarcimento
-        if v_pagto <= 0 and v_ressarc <= 0:
+        # REGRA PRINCIPAL: Ignora e retira do relatório se o ressarcimento for zerado (<= 0)
+        if v_ressarc <= 0:
             continue
             
+        v_pagto = limpar_valor(row.get(col_map['val_pagto'], 0))
+        
         tot_pagto += v_pagto
         tot_ressarc += v_ressarc
         qtd_linhas += 1
         
-        pdf.cell(cols_w[0], 5, fmt_texto(row.get(col_map['nat'], ''))[:30], border=1)
-        pdf.cell(cols_w[1], 5, fmt_texto(row.get(col_map['grupo'], ''))[:20], border=1)
-        pdf.cell(cols_w[2], 5, fmt_texto(row.get(col_map['credor'], ''))[:28], border=1)
-        pdf.cell(cols_w[3], 5, fmt_texto(row.get(col_map['cnpj'], '')), border=1, align='C')
-        pdf.cell(cols_w[4], 5, fmt_texto(row.get(col_map['nf'], '')), border=1, align='C')
-        pdf.cell(cols_w[5], 5, fmt_texto(row.get(col_map['data_p'], '')), border=1, align='C')
+        # Limita quantidade de caracteres por coluna para evitar sobreposição de textos
+        pdf.cell(cols_w[0], 5, fmt_texto(row.get(col_map['nat'], ''))[:24], border=1)
+        pdf.cell(cols_w[1], 5, fmt_texto(row.get(col_map['grupo'], ''))[:18], border=1)
+        pdf.cell(cols_w[2], 5, fmt_texto(row.get(col_map['credor'], ''))[:26], border=1)
+        pdf.cell(cols_w[3], 5, fmt_texto(row.get(col_map['cnpj'], ''))[:18], border=1, align='C')
+        pdf.cell(cols_w[4], 5, fmt_texto(row.get(col_map['nf'], ''))[:10], border=1, align='C')
+        pdf.cell(cols_w[5], 5, fmt_texto(row.get(col_map['data_p'], ''))[:10], border=1, align='C')
         pdf.cell(cols_w[6], 5, fmt_moeda(v_pagto), border=1, align='R')
-        pdf.cell(cols_w[7], 5, fmt_texto(row.get(col_map['data_r'], '')), border=1, align='C')
+        pdf.cell(cols_w[7], 5, fmt_texto(row.get(col_map['data_r'], ''))[:10], border=1, align='C')
         pdf.cell(cols_w[8], 5, fmt_texto(row.get(col_map['ag_conta'], ''))[:22], border=1)
         pdf.cell(cols_w[9], 5, fmt_moeda(v_ressarc), border=1, align='R', ln=True)
         
@@ -133,7 +134,7 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo
         pdf.cell(180, 5, "RESUMO DE FECHAMENTO DO PROJETO", border=1, fill=True, ln=True, align='C')
         
         pdf.set_font('Helvetica', '', 7)
-        pdf.cell(120, 5, " Total do Valor de Todas as Despesas (Pagamentos):", border=1)
+        pdf.cell(120, 5, " Total do Valor das Despesas (Pagamentos dos itens com ressarcimento):", border=1)
         pdf.cell(60, 5, f"R$ {fmt_moeda(tot_pagto)}", border=1, ln=True, align='R')
         
         pdf.cell(120, 5, " Total das Despesas Atribuídas ao Projeto (Ressarcimento):", border=1)
@@ -158,7 +159,7 @@ if arquivo_excel:
         colunas = df.columns.tolist()
         
         st.write("---")
-        st.write("⚙️ **1. Selecione os PROJETOS/CONTRATOS que deseja separar:**")
+        st.write("⚙️ **1. Selecione as colunas dos PROJETOS/CONTRATOS que deseja separar:**")
         projetos_selecionados = st.multiselect(
             "Selecione um ou mais Projetos:",
             options=colunas,
@@ -166,12 +167,14 @@ if arquivo_excel:
         )
         
         st.write("⚙️ **2. Mapeie as colunas de dados fixos das despesas:**")
+        st.caption("Atenção: verifique se selecionou cada campo correspondente para não cruzar dados na tabela.")
+        
         c1, c2, c3 = st.columns(3)
         
         with c1:
             col_nat = st.selectbox("Natureza da Despesa:", options=colunas)
             col_grupo = st.selectbox("Grupo:", options=colunas)
-            col_credor = st.selectbox("Credor:", options=colunas)
+            col_credor = st.selectbox("Credor / Fornecedor:", options=colunas)
             col_cnpj = st.selectbox("CNPJ/CPF:", options=colunas)
             
         with c2:
@@ -182,7 +185,7 @@ if arquivo_excel:
         with c3:
             col_data_r = st.selectbox("Data Ressarcimento:", options=colunas)
             col_ag_conta = st.selectbox("Ag. e Conta Corrente:", options=colunas)
-            col_val_r = st.selectbox("Valor de Ressarcimento:", options=colunas)
+            col_val_r = st.selectbox("Valor de Ressarcimento (Padrão/Geral):", options=colunas)
 
         col_map = {
             'nat': col_nat, 'grupo': col_grupo, 'credor': col_credor,
@@ -213,17 +216,20 @@ if arquivo_excel:
                         zip_file.writestr(f"Demonstrativo_{nome_limpo}.pdf", pdf_bytes)
                         resumo_geracao[nome_contrato] = qtd_itens
 
-            st.success("✅ Demonstrativos gerados com sucesso!")
-            st.write("**Resumo dos PDFs gerados:**")
-            for proj, qtd in resumo_geracao.items():
-                st.write(f"- **{proj}**: {qtd} item(ns) de despesa")
+            if resumo_geracao:
+                st.success("✅ Demonstrativos gerados com sucesso!")
+                st.write("**Resumo dos PDFs gerados (apenas despesas com ressarcimento > R$ 0,00):**")
+                for proj, qtd in resumo_geracao.items():
+                    st.write(f"- **{proj}**: {qtd} item(ns) de despesa")
 
-            st.download_button(
-                label="⬇️ Baixar Todos os PDFs (ZIP)",
-                data=zip_buffer.getvalue(),
-                file_name="Demonstrativos_Projetos.zip",
-                mime="application/zip"
-            )
+                st.download_button(
+                    label="⬇️ Baixar Todos os PDFs (ZIP)",
+                    data=zip_buffer.getvalue(),
+                    file_name="Demonstrativos_Projetos.zip",
+                    mime="application/zip"
+                )
+            else:
+                st.warning("Nenhum item com ressarcimento maior que zero foi encontrado para os projetos selecionados.")
 
     except Exception as e:
         st.error(f"Erro ao processar: {e}")
