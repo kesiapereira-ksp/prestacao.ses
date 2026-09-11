@@ -40,23 +40,24 @@ class PDFDemonstrativo(FPDF):
         super().__init__(orientation='L', unit='mm', format='A4')
         self.nome_projeto = nome_projeto
         self.logo_bytes = logo_bytes
-        self.set_auto_page_break(auto=True, margin=12)
+        self.set_auto_page_break(auto=True, margin=10)
 
     def header(self):
         if self.logo_bytes:
-            # Aumentado o tamanho da logo (w=50mm) e a posição do texto (set_y=28)
-            self.image(self.logo_bytes, x=10, y=6, w=50)
-            self.set_y(28)
+            # Imagem no topo (y=4, w=80mm)
+            self.image(self.logo_bytes, x=10, y=4, w=80)
+            # Texto colado logo abaixo da imagem
+            self.set_y(22)
         else:
-            self.set_y(10)
+            self.set_y(8)
 
         self.set_font('Helvetica', 'B', 11)
-        self.cell(0, 5, f"Projeto: {self.nome_projeto}", border=False, ln=True, align='L')
+        self.cell(0, 4.5, f"Projeto: {self.nome_projeto}", border=False, ln=True, align='L')
         self.set_font('Helvetica', '', 9)
-        self.cell(0, 4, "Demonstrativo Rateio Estrutura Administrativa", border=False, ln=True, align='L')
+        self.cell(0, 3.8, "Demonstrativo Rateio Estrutura Administrativa", border=False, ln=True, align='L')
         self.set_font('Helvetica', 'I', 7)
-        self.cell(0, 4, "(valores expressos em Reais)", border=False, ln=True, align='L')
-        self.ln(2)
+        self.cell(0, 3.5, "(valores expressos em Reais)", border=False, ln=True, align='L')
+        self.ln(1)
 
     def footer(self):
         self.set_y(-10)
