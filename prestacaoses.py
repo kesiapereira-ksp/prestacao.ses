@@ -62,11 +62,58 @@ class PDFDemonstrativo(FPDF):
         self.set_font('Helvetica', 'I', 7)
         self.cell(0, 8, f'Página {self.page_no()}', align='C')
 
-def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo_bytes=None):
+def gerar_excel_projeto(nome_projeto, linhas_dados, tot_pagto, tot_ressarc):
+    buffer = io.BytesIO()
+    
+    # Prepara lista de dicionários para DataFrame
+    dados_excel = []
+    for item in linhas_dados:
+        dados_excel.append({
+            "NATUREZA DA DESPESA": item['nat'],
+            "GRUPO": item['grupo'],
+            "CREDOR": item['credor'],
+            "CNPJ/CPF": item['cnpj'],
+            "NOTA FISCAL": item['nf'],
+            "DATA PAGTO": item['data_p'],
+            "VALOR Pagamento": item['val_p_num'],
+            "Data Ressarc.": item['data_r'],
+            "Ag. e Conta Corrente": item['ag_conta'],
+            "VALOR Ressarc.": item['val_r_num']
+        })
+        
+    df_export = pd.DataFrame(dados_excel)
+    
+    # Adiciona linha totalizadora
+    linha_total = {
+        "NATUREZA DA DESPESA": "", "GRUPO": "", "CREDOR": "",
+        "CNPJ/CPF": "", "NOTA FISCAL": "", "DATA PAGTO": "TOTAL",
+        "VALOR Pagamento": tot_pagto, "Data Ressarc.": "",
+        "Ag. e Conta Corrente": "", "VALOR Ressarc.": tot_ressarc
+    }
+    df_export_final = pd.concat([df_export, pd.DataFrame([linha_total])], ignore_index=True)
+    
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_export_final.to_excel(writer, sheet_name='Demonstrativo', index=False, startrow=3)
+        ws = writer.sheets['Demonstrativo']
+        
+        # Títulos e Cabeçalho do Projeto no Excel
+        ws.cell(row=1, column=1, value=f"Projeto: {nome_projeto}")
+        ws.cell(row=2, column=1, value="Demonstrativo Rateio Estrutura Administrativa (valores em Reais)")
+        
+        # Resumo de fechamento
+        last_row = len(df_export_final) + 6
+        ws.cell(row=last_row, column=1, value="RESUMO DE FECHAMENTO DO PROJETO")
+        ws.cell(row=last_row + 1, column=1, value="Total do Valor das Despesas (Pagamentos dos itens com ressarcimento):")
+        ws.cell(row=last_row + 1, column=7, value=tot_pagto)
+        ws.cell(row=last_row + 2, column=1, value="Total das Despesas Atribuídas ao Projeto (Ressarcimento):")
+        ws.cell(row=last_row + 2, column=7, value=tot_ressarc)
+
+    return buffer.getvalue()
+
+def gerar_pdf_e_excel_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo_bytes=None):
     pdf = PDFDemonstrativo(nome_projeto, logo_bytes=logo_bytes)
     pdf.add_page()
     
-    # 10 colunas ajustadas para a largura A4 Paisagem (277mm de área útil)
     cols_w = (38, 28, 42, 28, 16, 18, 24, 20, 36, 27)
     headers = [
         "NATUREZA DA DESPESA", "GRUPO", "CREDOR", "CNPJ/CPF",
@@ -86,7 +133,7 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo
         if v_ressarc <= 0 and col_map.get('val_ressarc'):
             v_ressarc = limpar_valor(row.get(col_map['val_ressarc'], 0))
             
-        # Omite do relatório qualquer despesa sem valor de ressarcimento
+        # Desconsidera linhas com ressarcimento zerado ou negativo
         if v_ressarc <= 0:
             continue
             
@@ -101,16 +148,18 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo
             'cnpj': fmt_texto(row.get(col_map['cnpj'], '')),
             'nf': fmt_texto(row.get(col_map['nf'], '')),
             'data_p': fmt_texto(row.get(col_map['data_p'], '')),
-            'val_p': fmt_moeda(v_pagto),
+            'val_p_str': fmt_moeda(v_pagto),
+            'val_p_num': v_pagto,
             'data_r': fmt_texto(row.get(col_map['data_r'], '')),
             'ag_conta': fmt_texto(row.get(col_map['ag_conta'], '')),
-            'val_r': fmt_moeda(v_ressarc)
+            'val_r_str': fmt_moeda(v_ressarc),
+            'val_r_num': v_ressarc
         })
         
     if not linhas_validas:
-        return None, 0
+        return None, None, 0
         
-    # Criação da tabela dinâmica com multilinhas (sem cortes de texto)
+    # --- 1. Montagem do PDF (com quebra automática multilinhas) ---
     pdf.set_font('Helvetica', 'B', 6)
     
     with pdf.table(
@@ -132,12 +181,12 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo
             r.cell(item['cnpj'])
             r.cell(item['nf'])
             r.cell(item['data_p'])
-            r.cell(item['val_p'])
+            r.cell(item['val_p_str'])
             r.cell(item['data_r'])
             r.cell(item['ag_conta'])
-            r.cell(item['val_r'])
+            r.cell(item['val_r_str'])
             
-        # Linha Totalizadora
+        # Linha Totalizadora PDF
         pdf.set_font('Helvetica', 'B', 6)
         r_tot = table.row()
         r_tot.cell("")
@@ -151,25 +200,27 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo
         r_tot.cell("")
         r_tot.cell(fmt_moeda(tot_ressarc))
         
-    # Quadro Resumo de Fechamento do Projeto
+    # Quadro Resumo de Fechamento PDF
     pdf.ln(3)
     pdf.set_font('Helvetica', 'B', 7.5)
     pdf.set_fill_color(240, 240, 240)
-    
     pdf.cell(180, 5, "RESUMO DE FECHAMENTO DO PROJETO", border=1, fill=True, ln=True, align='C')
-    
     pdf.set_font('Helvetica', '', 7)
     pdf.cell(120, 5, " Total do Valor das Despesas (Pagamentos dos itens com ressarcimento):", border=1)
     pdf.cell(60, 5, f"R$ {fmt_moeda(tot_pagto)}", border=1, ln=True, align='R')
-    
     pdf.cell(120, 5, " Total das Despesas Atribuídas ao Projeto (Ressarcimento):", border=1)
     pdf.set_font('Helvetica', 'B', 7)
     pdf.cell(60, 5, f"R$ {fmt_moeda(tot_ressarc)}", border=1, ln=True, align='R')
     
-    return bytes(pdf.output()), len(linhas_validas)
+    pdf_bytes = bytes(pdf.output())
+    
+    # --- 2. Montagem do Excel com as mesmas informações ---
+    excel_bytes = gerar_excel_projeto(nome_projeto, linhas_validas, tot_pagto, tot_ressarc)
+    
+    return pdf_bytes, excel_bytes, len(linhas_validas)
 
 # --- Interface Streamlit ---
-st.title("Gerador de Demonstrativo de Despesas por Projeto 📄📋")
+st.title("Gerador de Demonstrativos por Projeto (PDF e Excel) 📄📊")
 
 col_left, col_right = st.columns([2, 1])
 
@@ -218,7 +269,7 @@ if arquivo_excel:
             'ag_conta': col_ag_conta, 'val_ressarc': col_val_r
         }
 
-        if projetos_selecionados and st.button("Gerar Demonstrativos em PDF"):
+        if projetos_selecionados and st.button("Gerar Demonstrativos (PDF + Excel)"):
             logo_bytes = io.BytesIO(arquivo_logo.read()) if arquivo_logo else None
             zip_buffer = io.BytesIO()
             resumo_geracao = {}
@@ -227,7 +278,7 @@ if arquivo_excel:
                 for col_proj in projetos_selecionados:
                     nome_contrato = str(col_proj).strip()
                     
-                    pdf_bytes, qtd_itens = gerar_pdf_projeto(
+                    pdf_bytes, excel_bytes, qtd_itens = gerar_pdf_e_excel_projeto(
                         nome_projeto=nome_contrato, 
                         df_planilha=df, 
                         col_map=col_map, 
@@ -235,21 +286,25 @@ if arquivo_excel:
                         logo_bytes=logo_bytes
                     )
                     
-                    if qtd_itens > 0 and pdf_bytes:
+                    if qtd_itens > 0 and pdf_bytes and excel_bytes:
                         nome_limpo = re.sub(r'[\\/*?:"<>|]', '_', nome_contrato).strip()
+                        # Adiciona o arquivo PDF ao ZIP
                         zip_file.writestr(f"Demonstrativo_{nome_limpo}.pdf", pdf_bytes)
+                        # Adiciona o arquivo Excel ao ZIP
+                        zip_file.writestr(f"Demonstrativo_{nome_limpo}.xlsx", excel_bytes)
+                        
                         resumo_geracao[nome_contrato] = qtd_itens
 
             if resumo_geracao:
-                st.success("✅ Demonstrativos gerados com sucesso!")
-                st.write("**Resumo dos PDFs gerados (apenas despesas com ressarcimento > R$ 0,00):**")
+                st.success("✅ Demonstrativos (PDF e Excel) gerados com sucesso!")
+                st.write("**Resumo dos arquivos incluídos no pacote ZIP:**")
                 for proj, qtd in resumo_geracao.items():
-                    st.write(f"- **{proj}**: {qtd} item(ns) de despesa")
+                    st.write(f"- **{proj}**: {qtd} item(ns) -> Generados: `Demonstrativo_{proj}.pdf` e `Demonstrativo_{proj}.xlsx`")
 
                 st.download_button(
-                    label="⬇️ Baixar Todos os PDFs (ZIP)",
+                    label="⬇️ Baixar Pacote Completo (PDFs + Excels em ZIP)",
                     data=zip_buffer.getvalue(),
-                    file_name="Demonstrativos_Projetos.zip",
+                    file_name="Demonstrativos_Projetos_PDF_Excel.zip",
                     mime="application/zip"
                 )
             else:
