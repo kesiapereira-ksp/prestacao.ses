@@ -21,24 +21,15 @@ def limpar_valor(val):
         return 0.0
 
 def fmt_texto(val):
-    """Limpa textos, removendo o .0 de números inteiros do Excel e formatando datas."""
     if pd.isna(val) or val is None or str(val).strip().lower() == 'nan':
         return ""
-    
-    # Se for data/datetime, formata como DD/MM/AAAA
     if isinstance(val, pd.Timestamp):
         return val.strftime('%d/%m/%Y')
-        
     val_str = str(val).strip()
-    
-    # Remove o timestamp 00:00:00 se veio como string de data
     if ' 00:00:00' in val_str:
         val_str = val_str.replace(' 00:00:00', '')
-        
-    # Remove sufixo .0 de inteiros lidos como float
     if val_str.endswith('.0'):
         val_str = val_str[:-2]
-        
     return val_str
 
 def fmt_moeda(val):
@@ -71,7 +62,7 @@ class PDFDemonstrativo(FPDF):
         self.set_font('Helvetica', 'I', 7)
         self.cell(0, 8, f'Página {self.page_no()}', align='C')
 
-def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
+def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto, logo_bytes=None):
     pdf = PDFDemonstrativo(nome_projeto, logo_bytes=logo_bytes)
     pdf.add_page()
     
@@ -95,17 +86,21 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
     tot_ressarc = 0.0
     qtd_linhas = 0
     
-    for _, row in df_proj.iterrows():
-        v_pagto = limpar_valor(row.get(col_map['val_pagto'], 0))
-        v_ressarc = limpar_valor(row.get(col_map['val_ressarc'], 0))
+    for _, row in df_planilha.iterrows():
+        # O valor atribuído ao projeto vem da própria coluna do projeto
+        v_ressarc = limpar_valor(row.get(col_projeto, 0))
         
-        if v_pagto <= 0 and v_ressarc <= 0:
+        # Filtro: ignora se não houver valor atribuído ao projeto
+        if v_ressarc <= 0:
             continue
             
+        v_pagto = limpar_valor(row.get(col_map['val_pagto'], 0))
+        
         tot_pagto += v_pagto
         tot_ressarc += v_ressarc
         qtd_linhas += 1
         
+        # Impressão sequencial da linha
         pdf.cell(cols_w[0], 5, fmt_texto(row.get(col_map['nat'], ''))[:30], border=1)
         pdf.cell(cols_w[1], 5, fmt_texto(row.get(col_map['grupo'], ''))[:20], border=1)
         pdf.cell(cols_w[2], 5, fmt_texto(row.get(col_map['credor'], ''))[:28], border=1)
@@ -158,11 +153,17 @@ if arquivo_excel:
         df = pd.read_excel(arquivo_excel)
         colunas = df.columns.tolist()
         
-        st.write("**Mapeamento das Colunas:**")
+        st.write("---")
+        st.write("⚙️ **1. Selecione as colunas dos PROJETOS/CONTRATOS que deseja separar:**")
+        projetos_selecionados = st.multiselect(
+            "Selecione um ou mais Projetos:",
+            options=colunas,
+            key="select_projetos"
+        )
         
+        st.write("⚙️ **2. Mapeie as colunas de dados fixos das despesas:**")
         c1, c2, c3 = st.columns(3)
         with c1:
-            col_proj = st.selectbox("Projeto (Coluna do Nome do Contrato):", options=colunas)
             col_nat = st.selectbox("Natureza da Despesa:", options=colunas)
             col_grupo = st.selectbox("Grupo:", options=colunas)
             col_credor = st.selectbox("Credor:", options=colunas)
@@ -170,37 +171,39 @@ if arquivo_excel:
             col_cnpj = st.selectbox("CNPJ/CPF:", options=colunas)
             col_nf = st.selectbox("Nota Fiscal:", options=colunas)
             col_data_p = st.selectbox("Data Pagamento:", options=colunas)
-            col_val_p = st.selectbox("Valor Pagamento (Todas as despesas):", options=colunas)
         with c3:
+            col_val_p = st.selectbox("Valor Total da Nota/Pagamento:", options=colunas)
             col_data_r = st.selectbox("Data Ressarcimento:", options=colunas)
             col_ag_conta = st.selectbox("Ag. e Conta Corrente:", options=colunas)
-            col_val_r = st.selectbox("Valor Ressarcimento (Atribuídas ao Projeto):", options=colunas)
 
         col_map = {
             'nat': col_nat, 'grupo': col_grupo, 'credor': col_credor,
             'cnpj': col_cnpj, 'nf': col_nf, 'data_p': col_data_p,
             'val_pagto': col_val_p, 'data_r': col_data_r,
-            'ag_conta': col_ag_conta, 'val_ressarc': col_val_r
+            'ag_conta': col_ag_conta
         }
 
-        if st.button("Gerar Demonstrativos em PDF"):
+        if projetos_selecionados and st.button("Gerar Demonstrativos em PDF"):
             logo_bytes = io.BytesIO(arquivo_logo.read()) if arquivo_logo else None
-
             zip_buffer = io.BytesIO()
-            projetos = df[col_proj].dropna().unique()
             resumo_geracao = {}
 
             with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_file:
-                for proj in projetos:
-                    df_proj = df[df[col_proj] == proj]
-                    nome_proj_str = fmt_texto(proj)
+                for col_proj in projetos_selecionados:
+                    nome_contrato = str(col_proj).strip()
                     
-                    pdf_bytes, qtd_itens = gerar_pdf_projeto(nome_proj_str, df_proj, col_map, logo_bytes=logo_bytes)
+                    pdf_bytes, qtd_itens = gerar_pdf_projeto(
+                        nome_projeto=nome_contrato, 
+                        df_planilha=df, 
+                        col_map=col_map, 
+                        col_projeto=col_proj, 
+                        logo_bytes=logo_bytes
+                    )
                     
                     if qtd_itens > 0:
-                        nome_limpo = re.sub(r'[\\/*?:"<>|]', '_', nome_proj_str).strip()
+                        nome_limpo = re.sub(r'[\\/*?:"<>|]', '_', nome_contrato).strip()
                         zip_file.writestr(f"Demonstrativo_{nome_limpo}.pdf", pdf_bytes)
-                        resumo_geracao[nome_proj_str] = qtd_itens
+                        resumo_geracao[nome_contrato] = qtd_itens
 
             st.success("✅ Demonstrativos gerados com sucesso!")
             st.write("**Resumo dos PDFs gerados:**")
@@ -210,7 +213,7 @@ if arquivo_excel:
             st.download_button(
                 label="⬇️ Baixar Todos os PDFs (ZIP)",
                 data=zip_buffer.getvalue(),
-                file_name="Demonstrativos_Projetos.pdf.zip",
+                file_name="Demonstrativos_Projetos.zip",
                 mime="application/zip"
             )
 
