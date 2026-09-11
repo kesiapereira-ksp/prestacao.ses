@@ -31,11 +31,9 @@ class PDFDemonstrativo(FPDF):
         self.set_auto_page_break(auto=True, margin=12)
 
     def header(self):
-        # Adiciona a imagem do timbrado/logo se tiver sido enviada
         if self.logo_bytes:
-            # Posiciona no canto superior esquerdo (x=10, y=8) com largura de 35mm
             self.image(self.logo_bytes, x=10, y=8, w=35)
-            self.set_y(22)  # Baixa a posição vertical do texto para não sobrepor o timbrado
+            self.set_y(22)
         else:
             self.set_y(10)
 
@@ -56,7 +54,7 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
     pdf = PDFDemonstrativo(nome_projeto, logo_bytes=logo_bytes)
     pdf.add_page()
     
-    # 10 colunas ajustadas para a página A4 Paisagem (Largura útil = 277mm)
+    # 10 colunas ajustadas para A4 Paisagem (277mm)
     cols_w = [42, 30, 42, 26, 16, 18, 24, 20, 34, 25]
     headers = [
         "NATUREZA DA DESPESA", "GRUPO", "CREDOR", "CNPJ/CPF",
@@ -71,17 +69,18 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
         pdf.cell(w, 6, h_text, border=1, fill=True, align='C')
     pdf.ln()
     
-    # Linhas de Dados
+    # Linhas de Dados (uma abaixo da outra)
     pdf.set_font('Helvetica', size=5.5)
     
-    tot_pagto = 0.0
-    tot_ressarc = 0.0
+    tot_pagto = 0.0      # Total de todas as despesas
+    tot_ressarc = 0.0    # Total das despesas atribuídas ao projeto
     qtd_linhas = 0
     
     for _, row in df_proj.iterrows():
         v_pagto = limpar_valor(row.get(col_map['val_pagto'], 0))
         v_ressarc = limpar_valor(row.get(col_map['val_ressarc'], 0))
         
+        # Ignora despesas zeradas
         if v_pagto <= 0 and v_ressarc <= 0:
             continue
             
@@ -89,6 +88,7 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
         tot_ressarc += v_ressarc
         qtd_linhas += 1
         
+        # Impressão sequencial da linha
         pdf.cell(cols_w[0], 5, str(row.get(col_map['nat'], ''))[:30], border=1)
         pdf.cell(cols_w[1], 5, str(row.get(col_map['grupo'], ''))[:20], border=1)
         pdf.cell(cols_w[2], 5, str(row.get(col_map['credor'], ''))[:28], border=1)
@@ -100,15 +100,31 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
         pdf.cell(cols_w[8], 5, str(row.get(col_map['ag_conta'], ''))[:22], border=1)
         pdf.cell(cols_w[9], 5, fmt_moeda(v_ressarc), border=1, align='R', ln=True)
         
-    # Linha Totalizadora
+    # Linha de Totais no Rodapé da Tabela
     if qtd_linhas > 0:
         pdf.set_font('Helvetica', 'B', 6)
-        pdf.set_fill_color(240, 240, 240)
+        pdf.set_fill_color(230, 230, 230)
+        
         w_tot_label = sum(cols_w[:6])
-        pdf.cell(w_tot_label, 5, "TOTAL", border=1, fill=True, align='R')
-        pdf.cell(cols_w[6], 5, fmt_moeda(tot_pagto), border=1, fill=True, align='R')
-        pdf.cell(cols_w[7] + cols_w[8], 5, "", border=1, fill=True)
-        pdf.cell(cols_w[9], 5, fmt_moeda(tot_ressarc), border=1, fill=True, align='R', ln=True)
+        pdf.cell(w_tot_label, 6, "TOTAL", border=1, fill=True, align='R')
+        pdf.cell(cols_w[6], 6, fmt_moeda(tot_pagto), border=1, fill=True, align='R')
+        pdf.cell(cols_w[7] + cols_w[8], 6, "", border=1, fill=True)
+        pdf.cell(cols_w[9], 6, fmt_moeda(tot_ressarc), border=1, fill=True, align='R', ln=True)
+        
+        # Quadro Resumo de Fechamento ao Final
+        pdf.ln(3)
+        pdf.set_font('Helvetica', 'B', 7.5)
+        pdf.set_fill_color(240, 240, 240)
+        
+        pdf.cell(180, 5, "RESUMO DE FECHAMENTO DO PROJETO", border=1, fill=True, ln=True, align='C')
+        
+        pdf.set_font('Helvetica', '', 7)
+        pdf.cell(120, 5, " Total do Valor de Todas as Despesas (Pagamentos):", border=1)
+        pdf.cell(60, 5, f"R$ {fmt_moeda(tot_pagto)}", border=1, ln=True, align='R')
+        
+        pdf.cell(120, 5, " Total das Despesas Atribuídas ao Projeto (Ressarcimento):", border=1)
+        pdf.set_font('Helvetica', 'B', 7)
+        pdf.cell(60, 5, f"R$ {fmt_moeda(tot_ressarc)}", border=1, ln=True, align='R')
     
     return bytes(pdf.output()), qtd_linhas
 
@@ -139,11 +155,11 @@ if arquivo_excel:
             col_cnpj = st.selectbox("CNPJ/CPF:", options=colunas)
             col_nf = st.selectbox("Nota Fiscal:", options=colunas)
             col_data_p = st.selectbox("Data Pagamento:", options=colunas)
-            col_val_p = st.selectbox("Valor Pagamento:", options=colunas)
+            col_val_p = st.selectbox("Valor Pagamento (Todas as despesas):", options=colunas)
         with c3:
             col_data_r = st.selectbox("Data Ressarcimento:", options=colunas)
             col_ag_conta = st.selectbox("Ag. e Conta Corrente:", options=colunas)
-            col_val_r = st.selectbox("Valor Ressarcimento:", options=colunas)
+            col_val_r = st.selectbox("Valor Ressarcimento (Atribuídas ao Projeto):", options=colunas)
 
         col_map = {
             'nat': col_nat, 'grupo': col_grupo, 'credor': col_credor,
@@ -153,7 +169,6 @@ if arquivo_excel:
         }
 
         if st.button("Gerar Demonstrativos em PDF"):
-            # Lê os bytes da logo se tiver enviado
             logo_bytes = io.BytesIO(arquivo_logo.read()) if arquivo_logo else None
 
             zip_buffer = io.BytesIO()
@@ -171,7 +186,7 @@ if arquivo_excel:
                         resumo_geracao[proj] = qtd_itens
 
             st.success("✅ Demonstrativos gerados com sucesso!")
-            st.write("**Resumo dos PDFs gerados (sem despesas zeradas):**")
+            st.write("**Resumo dos PDFs gerados:**")
             for proj, qtd in resumo_geracao.items():
                 st.write(f"- **{proj}**: {qtd} item(ns) de despesa")
 
