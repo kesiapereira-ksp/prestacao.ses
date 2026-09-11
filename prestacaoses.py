@@ -20,6 +20,27 @@ def limpar_valor(val):
     except:
         return 0.0
 
+def fmt_texto(val):
+    """Limpa textos, removendo o .0 de números inteiros do Excel e formatando datas."""
+    if pd.isna(val) or val is None or str(val).strip().lower() == 'nan':
+        return ""
+    
+    # Se for data/datetime, formata como DD/MM/AAAA
+    if isinstance(val, pd.Timestamp):
+        return val.strftime('%d/%m/%Y')
+        
+    val_str = str(val).strip()
+    
+    # Remove o timestamp 00:00:00 se veio como string de data
+    if ' 00:00:00' in val_str:
+        val_str = val_str.replace(' 00:00:00', '')
+        
+    # Remove sufixo .0 de inteiros lidos como float
+    if val_str.endswith('.0'):
+        val_str = val_str[:-2]
+        
+    return val_str
+
 def fmt_moeda(val):
     return f"{val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
@@ -54,7 +75,6 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
     pdf = PDFDemonstrativo(nome_projeto, logo_bytes=logo_bytes)
     pdf.add_page()
     
-    # 10 colunas ajustadas para A4 Paisagem (277mm)
     cols_w = [42, 30, 42, 26, 16, 18, 24, 20, 34, 25]
     headers = [
         "NATUREZA DA DESPESA", "GRUPO", "CREDOR", "CNPJ/CPF",
@@ -69,18 +89,16 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
         pdf.cell(w, 6, h_text, border=1, fill=True, align='C')
     pdf.ln()
     
-    # Linhas de Dados (uma abaixo da outra)
     pdf.set_font('Helvetica', size=5.5)
     
-    tot_pagto = 0.0      # Total de todas as despesas
-    tot_ressarc = 0.0    # Total das despesas atribuídas ao projeto
+    tot_pagto = 0.0
+    tot_ressarc = 0.0
     qtd_linhas = 0
     
     for _, row in df_proj.iterrows():
         v_pagto = limpar_valor(row.get(col_map['val_pagto'], 0))
         v_ressarc = limpar_valor(row.get(col_map['val_ressarc'], 0))
         
-        # Ignora despesas zeradas
         if v_pagto <= 0 and v_ressarc <= 0:
             continue
             
@@ -88,19 +106,17 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
         tot_ressarc += v_ressarc
         qtd_linhas += 1
         
-        # Impressão sequencial da linha
-        pdf.cell(cols_w[0], 5, str(row.get(col_map['nat'], ''))[:30], border=1)
-        pdf.cell(cols_w[1], 5, str(row.get(col_map['grupo'], ''))[:20], border=1)
-        pdf.cell(cols_w[2], 5, str(row.get(col_map['credor'], ''))[:28], border=1)
-        pdf.cell(cols_w[3], 5, str(row.get(col_map['cnpj'], '')), border=1, align='C')
-        pdf.cell(cols_w[4], 5, str(row.get(col_map['nf'], '')), border=1, align='C')
-        pdf.cell(cols_w[5], 5, str(row.get(col_map['data_p'], '')), border=1, align='C')
+        pdf.cell(cols_w[0], 5, fmt_texto(row.get(col_map['nat'], ''))[:30], border=1)
+        pdf.cell(cols_w[1], 5, fmt_texto(row.get(col_map['grupo'], ''))[:20], border=1)
+        pdf.cell(cols_w[2], 5, fmt_texto(row.get(col_map['credor'], ''))[:28], border=1)
+        pdf.cell(cols_w[3], 5, fmt_texto(row.get(col_map['cnpj'], '')), border=1, align='C')
+        pdf.cell(cols_w[4], 5, fmt_texto(row.get(col_map['nf'], '')), border=1, align='C')
+        pdf.cell(cols_w[5], 5, fmt_texto(row.get(col_map['data_p'], '')), border=1, align='C')
         pdf.cell(cols_w[6], 5, fmt_moeda(v_pagto), border=1, align='R')
-        pdf.cell(cols_w[7], 5, str(row.get(col_map['data_r'], '')), border=1, align='C')
-        pdf.cell(cols_w[8], 5, str(row.get(col_map['ag_conta'], ''))[:22], border=1)
+        pdf.cell(cols_w[7], 5, fmt_texto(row.get(col_map['data_r'], '')), border=1, align='C')
+        pdf.cell(cols_w[8], 5, fmt_texto(row.get(col_map['ag_conta'], ''))[:22], border=1)
         pdf.cell(cols_w[9], 5, fmt_moeda(v_ressarc), border=1, align='R', ln=True)
         
-    # Linha de Totais no Rodapé da Tabela
     if qtd_linhas > 0:
         pdf.set_font('Helvetica', 'B', 6)
         pdf.set_fill_color(230, 230, 230)
@@ -111,7 +127,6 @@ def gerar_pdf_projeto(nome_projeto, df_proj, col_map, logo_bytes=None):
         pdf.cell(cols_w[7] + cols_w[8], 6, "", border=1, fill=True)
         pdf.cell(cols_w[9], 6, fmt_moeda(tot_ressarc), border=1, fill=True, align='R', ln=True)
         
-        # Quadro Resumo de Fechamento ao Final
         pdf.ln(3)
         pdf.set_font('Helvetica', 'B', 7.5)
         pdf.set_fill_color(240, 240, 240)
@@ -147,7 +162,7 @@ if arquivo_excel:
         
         c1, c2, c3 = st.columns(3)
         with c1:
-            col_proj = st.selectbox("Projeto:", options=colunas)
+            col_proj = st.selectbox("Projeto (Coluna do Nome do Contrato):", options=colunas)
             col_nat = st.selectbox("Natureza da Despesa:", options=colunas)
             col_grupo = st.selectbox("Grupo:", options=colunas)
             col_credor = st.selectbox("Credor:", options=colunas)
@@ -178,12 +193,14 @@ if arquivo_excel:
             with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_file:
                 for proj in projetos:
                     df_proj = df[df[col_proj] == proj]
-                    pdf_bytes, qtd_itens = gerar_pdf_projeto(str(proj), df_proj, col_map, logo_bytes=logo_bytes)
+                    nome_proj_str = fmt_texto(proj)
+                    
+                    pdf_bytes, qtd_itens = gerar_pdf_projeto(nome_proj_str, df_proj, col_map, logo_bytes=logo_bytes)
                     
                     if qtd_itens > 0:
-                        nome_limpo = re.sub(r'[\\/*?:"<>|]', '_', str(proj)).strip()
+                        nome_limpo = re.sub(r'[\\/*?:"<>|]', '_', nome_proj_str).strip()
                         zip_file.writestr(f"Demonstrativo_{nome_limpo}.pdf", pdf_bytes)
-                        resumo_geracao[proj] = qtd_itens
+                        resumo_geracao[nome_proj_str] = qtd_itens
 
             st.success("✅ Demonstrativos gerados com sucesso!")
             st.write("**Resumo dos PDFs gerados:**")
