@@ -44,8 +44,9 @@ class PDFDemonstrativo(FPDF):
 
     def header(self):
         if self.logo_bytes:
-            self.image(self.logo_bytes, x=10, y=8, w=35)
-            self.set_y(22)
+            # Aumentado o tamanho da logo (w=50mm) e a posição do texto (set_y=28)
+            self.image(self.logo_bytes, x=10, y=6, w=50)
+            self.set_y(28)
         else:
             self.set_y(10)
 
@@ -65,7 +66,6 @@ class PDFDemonstrativo(FPDF):
 def gerar_excel_projeto(nome_projeto, linhas_dados, tot_pagto, tot_ressarc):
     buffer = io.BytesIO()
     
-    # Prepara lista de dicionários para DataFrame
     dados_excel = []
     for item in linhas_dados:
         dados_excel.append({
@@ -83,7 +83,6 @@ def gerar_excel_projeto(nome_projeto, linhas_dados, tot_pagto, tot_ressarc):
         
     df_export = pd.DataFrame(dados_excel)
     
-    # Adiciona linha totalizadora
     linha_total = {
         "NATUREZA DA DESPESA": "", "GRUPO": "", "CREDOR": "",
         "CNPJ/CPF": "", "NOTA FISCAL": "", "DATA PAGTO": "TOTAL",
@@ -96,11 +95,9 @@ def gerar_excel_projeto(nome_projeto, linhas_dados, tot_pagto, tot_ressarc):
         df_export_final.to_excel(writer, sheet_name='Demonstrativo', index=False, startrow=3)
         ws = writer.sheets['Demonstrativo']
         
-        # Títulos e Cabeçalho do Projeto no Excel
         ws.cell(row=1, column=1, value=f"Projeto: {nome_projeto}")
         ws.cell(row=2, column=1, value="Demonstrativo Rateio Estrutura Administrativa (valores em Reais)")
         
-        # Resumo de fechamento
         last_row = len(df_export_final) + 6
         ws.cell(row=last_row, column=1, value="RESUMO DE FECHAMENTO DO PROJETO")
         ws.cell(row=last_row + 1, column=1, value="Total do Valor das Despesas (Pagamentos dos itens com ressarcimento):")
@@ -133,7 +130,6 @@ def gerar_pdf_e_excel_projeto(nome_projeto, df_planilha, col_map, col_projeto=No
         if v_ressarc <= 0 and col_map.get('val_ressarc'):
             v_ressarc = limpar_valor(row.get(col_map['val_ressarc'], 0))
             
-        # Desconsidera linhas com ressarcimento zerado ou negativo
         if v_ressarc <= 0:
             continue
             
@@ -159,7 +155,6 @@ def gerar_pdf_e_excel_projeto(nome_projeto, df_planilha, col_map, col_projeto=No
     if not linhas_validas:
         return None, None, 0
         
-    # --- 1. Montagem do PDF (com quebra automática multilinhas) ---
     pdf.set_font('Helvetica', 'B', 6)
     
     with pdf.table(
@@ -186,7 +181,6 @@ def gerar_pdf_e_excel_projeto(nome_projeto, df_planilha, col_map, col_projeto=No
             r.cell(item['ag_conta'])
             r.cell(item['val_r_str'])
             
-        # Linha Totalizadora PDF
         pdf.set_font('Helvetica', 'B', 6)
         r_tot = table.row()
         r_tot.cell("")
@@ -200,7 +194,6 @@ def gerar_pdf_e_excel_projeto(nome_projeto, df_planilha, col_map, col_projeto=No
         r_tot.cell("")
         r_tot.cell(fmt_moeda(tot_ressarc))
         
-    # Quadro Resumo de Fechamento PDF
     pdf.ln(3)
     pdf.set_font('Helvetica', 'B', 7.5)
     pdf.set_fill_color(240, 240, 240)
@@ -213,8 +206,6 @@ def gerar_pdf_e_excel_projeto(nome_projeto, df_planilha, col_map, col_projeto=No
     pdf.cell(60, 5, f"R$ {fmt_moeda(tot_ressarc)}", border=1, ln=True, align='R')
     
     pdf_bytes = bytes(pdf.output())
-    
-    # --- 2. Montagem do Excel com as mesmas informações ---
     excel_bytes = gerar_excel_projeto(nome_projeto, linhas_validas, tot_pagto, tot_ressarc)
     
     return pdf_bytes, excel_bytes, len(linhas_validas)
@@ -288,9 +279,7 @@ if arquivo_excel:
                     
                     if qtd_itens > 0 and pdf_bytes and excel_bytes:
                         nome_limpo = re.sub(r'[\\/*?:"<>|]', '_', nome_contrato).strip()
-                        # Adiciona o arquivo PDF ao ZIP
                         zip_file.writestr(f"Demonstrativo_{nome_limpo}.pdf", pdf_bytes)
-                        # Adiciona o arquivo Excel ao ZIP
                         zip_file.writestr(f"Demonstrativo_{nome_limpo}.xlsx", excel_bytes)
                         
                         resumo_geracao[nome_contrato] = qtd_itens
@@ -299,7 +288,7 @@ if arquivo_excel:
                 st.success("✅ Demonstrativos (PDF e Excel) gerados com sucesso!")
                 st.write("**Resumo dos arquivos incluídos no pacote ZIP:**")
                 for proj, qtd in resumo_geracao.items():
-                    st.write(f"- **{proj}**: {qtd} item(ns) -> Generados: `Demonstrativo_{proj}.pdf` e `Demonstrativo_{proj}.xlsx`")
+                    st.write(f"- **{proj}**: {qtd} item(ns) -> Gerados: `Demonstrativo_{proj}.pdf` e `Demonstrativo_{proj}.xlsx`")
 
                 st.download_button(
                     label="⬇️ Baixar Pacote Completo (PDFs + Excels em ZIP)",
