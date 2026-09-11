@@ -62,7 +62,7 @@ class PDFDemonstrativo(FPDF):
         self.set_font('Helvetica', 'I', 7)
         self.cell(0, 8, f'Página {self.page_no()}', align='C')
 
-def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto, logo_bytes=None):
+def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto=None, logo_bytes=None):
     pdf = PDFDemonstrativo(nome_projeto, logo_bytes=logo_bytes)
     pdf.add_page()
     
@@ -87,20 +87,24 @@ def gerar_pdf_projeto(nome_projeto, df_planilha, col_map, col_projeto, logo_byte
     qtd_linhas = 0
     
     for _, row in df_planilha.iterrows():
-        # O valor atribuído ao projeto vem da própria coluna do projeto
-        v_ressarc = limpar_valor(row.get(col_projeto, 0))
-        
-        # Filtro: ignora se não houver valor atribuído ao projeto
-        if v_ressarc <= 0:
-            continue
+        # Busca o valor de ressarcimento prioritariamente da coluna do projeto selecionado;
+        # se zerado, recorre à coluna mapeada de ressarcimento
+        v_ressarc = 0.0
+        if col_projeto and col_projeto in row:
+            v_ressarc = limpar_valor(row.get(col_projeto, 0))
+        if v_ressarc <= 0 and col_map.get('val_ressarc'):
+            v_ressarc = limpar_valor(row.get(col_map['val_ressarc'], 0))
             
         v_pagto = limpar_valor(row.get(col_map['val_pagto'], 0))
         
+        # Ignora linhas que não possuem pagamento nem ressarcimento
+        if v_pagto <= 0 and v_ressarc <= 0:
+            continue
+            
         tot_pagto += v_pagto
         tot_ressarc += v_ressarc
         qtd_linhas += 1
         
-        # Impressão sequencial da linha
         pdf.cell(cols_w[0], 5, fmt_texto(row.get(col_map['nat'], ''))[:30], border=1)
         pdf.cell(cols_w[1], 5, fmt_texto(row.get(col_map['grupo'], ''))[:20], border=1)
         pdf.cell(cols_w[2], 5, fmt_texto(row.get(col_map['credor'], ''))[:28], border=1)
@@ -154,7 +158,7 @@ if arquivo_excel:
         colunas = df.columns.tolist()
         
         st.write("---")
-        st.write("⚙️ **1. Selecione as colunas dos PROJETOS/CONTRATOS que deseja separar:**")
+        st.write("⚙️ **1. Selecione os PROJETOS/CONTRATOS que deseja separar:**")
         projetos_selecionados = st.multiselect(
             "Selecione um ou mais Projetos:",
             options=colunas,
@@ -163,24 +167,28 @@ if arquivo_excel:
         
         st.write("⚙️ **2. Mapeie as colunas de dados fixos das despesas:**")
         c1, c2, c3 = st.columns(3)
+        
         with c1:
             col_nat = st.selectbox("Natureza da Despesa:", options=colunas)
             col_grupo = st.selectbox("Grupo:", options=colunas)
             col_credor = st.selectbox("Credor:", options=colunas)
-        with c2:
             col_cnpj = st.selectbox("CNPJ/CPF:", options=colunas)
+            
+        with c2:
             col_nf = st.selectbox("Nota Fiscal:", options=colunas)
             col_data_p = st.selectbox("Data Pagamento:", options=colunas)
+            col_val_p = st.selectbox("Valor do Pagamento:", options=colunas)
+            
         with c3:
-            col_val_p = st.selectbox("Valor Total da Nota/Pagamento:", options=colunas)
             col_data_r = st.selectbox("Data Ressarcimento:", options=colunas)
             col_ag_conta = st.selectbox("Ag. e Conta Corrente:", options=colunas)
+            col_val_r = st.selectbox("Valor de Ressarcimento:", options=colunas)
 
         col_map = {
             'nat': col_nat, 'grupo': col_grupo, 'credor': col_credor,
             'cnpj': col_cnpj, 'nf': col_nf, 'data_p': col_data_p,
             'val_pagto': col_val_p, 'data_r': col_data_r,
-            'ag_conta': col_ag_conta
+            'ag_conta': col_ag_conta, 'val_ressarc': col_val_r
         }
 
         if projetos_selecionados and st.button("Gerar Demonstrativos em PDF"):
